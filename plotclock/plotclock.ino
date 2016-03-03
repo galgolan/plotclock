@@ -6,30 +6,28 @@
 // origin: bottom left of drawing surface
 // time library see http://playground.arduino.cc/Code/time 
 // RTC  library see http://playground.arduino.cc/Code/time 
-//               or http://www.pjrc.com/teensy/td_libs_DS1307RTC.html  
-// Change log:
-// 1.01  Release by joo at https://github.com/9a/plotclock
-// 1.02  Additional features implemented by Dave:
-//       - added ability to calibrate servofaktor seperately for left and right servos
-//       - added code to support DS1307, DS1337 and DS3231 real time clock chips
-//       - see http://www.pjrc.com/teensy/td_libs_DS1307RTC.html for how to hook up the real time clock
-//
-// 1.03  Remix/mod by Kjetil Egeland
-// 1.04  modifications and manual calibration mode by Galgo
+//               or http://www.pjrc.com/teensy/td_libs_DS1307RTC.html
 
-// delete or mark the next line as comment if you don't need these
-#define CALIBRATION      // enable calibration mode
-//#define REALTIMECLOCK    // enable real time clock
+
+// comment out one of the two following lines
+#define CALIBRATION         // enable calibration mode
+//#define REALTIMECLOCK     // enable real time clock
 
 // When in calibration mode, adjust the following factor until the servos move exactly 90 degrees
-#define SERVOFAKTORLEFT 650
-#define SERVOFAKTORRIGHT 680
+#define SERVOFAKTORLEFT   650
+#define SERVOFAKTORRIGHT  680
 
 // Zero-position of left and right servo
 // When in calibration mode, adjust the NULL-values so that the servo arms are at all times parallel
 // either to the X or Y axis
-#define SERVOLEFTNULL 1650
-#define SERVORIGHTNULL 500
+#define SERVOLEFTNULL   1650
+#define SERVORIGHTNULL  500
+
+// some servos operate in reverse direction than others (CW vs CCW)
+// if your servos are running in the reverse direction (for example: you get a mirror image on the drawing surface),
+// uncomment any of the 2 following lines to fix this.
+#define SERVOREVERSELEFT
+#define SERVOREVERSERIGHT
 
 // defines the pins where the servo motors are connected
 #define SERVOPINLIFT  2
@@ -37,14 +35,15 @@
 #define SERVOPINRIGHT 4
 
 // lift positions of lifting servo
-#define LIFT_DRAWING 1120  // on drawing surface
-#define LIFT_BETWEEN 1200  // between numbers
-#define LIFT_TAKE_SWEEPER 1400  // going towards sweeper
+#define LIFT_DRAWING      950         // on drawing surface
+#define LIFT_BETWEEN      1100        // between numbers
+#define LIFT_TAKE_SWEEPER 1320        // going towards sweeper
 
-#define DIGITS_SCALE	0.9
+#define DIGITS_SCALE	  0.9
+#define DRAWING_HEIGHT  25
 
 // speed of liftimg arm, higher is slower
-#define LIFTSPEED 3000
+#define LIFTSPEED 1000
 
 // length of arms
 #define L1 35
@@ -58,9 +57,9 @@
 #define O2Y -25
 
 // 
-#define PARKX 13
-#define PARKY 14
-#define ERASEMAXX 60
+#define PARKX -7
+#define PARKY 15
+#define ERASEMAXX 60    // erase motion width ?
 
 #include <Time.h> // see http://playground.arduino.cc/Code/time 
 #include <Servo.h>
@@ -75,7 +74,7 @@
 	#include <DS1307RTC.h> // see http://playground.arduino.cc/Code/time    
 #endif
 
-// state variable
+// state variables
 int servoLift = 1500;	// current pos of lift servo
 
 Servo servo_lift;
@@ -103,13 +102,10 @@ void setup_rtc()
 	else 
 	{
 		if (RTC.chipPresent())
-		{
 			Serial.println("DS1307 is stopped.  Please run the SetTime example to initialize the time and begin running.");
-		} 
 		else 
-		{
 			Serial.println("DS1307 read error!  Please check the circuitry.");
-		} 
+
 		// Set current time only the first to values, hh,mm are needed
 		setTime(15,05,0,0,0,0);
   }
@@ -153,7 +149,6 @@ void loop_rtc()
 	// wait for minute to change so we can start drawing
 	if (last_min != minute())
 	{	
-		hour();
 		int hour1 = get_tens_digit(hour());
 		int hour2 = get_units_digit(hour1, hour());
 		int minute1 = get_tens_digit(minute());
@@ -161,14 +156,14 @@ void loop_rtc()
 		
 		// erase 2x
 		lift_take_sweeper();
-		erase(3, 3);
-		erase(3, 3);
+		erase();
+		erase();
 		
-		draw_number(5, 25, hour1, DIGITS_SCALE);
-		draw_number(19, 25, hour2, DIGITS_SCALE);
-		draw_colon(28, 25, DIGITS_SCALE);
-		draw_number(34, 25, minute1, DIGITS_SCALE);
-		draw_number(48, 25, minute2, DIGITS_SCALE);
+		draw_number(5, DRAWING_HEIGHT, hour1, DIGITS_SCALE);
+		draw_number(19, DRAWING_HEIGHT, hour2, DIGITS_SCALE);
+		draw_colon(28, DRAWING_HEIGHT, DIGITS_SCALE);
+		draw_number(34, DRAWING_HEIGHT, minute1, DIGITS_SCALE);
+		draw_number(48, DRAWING_HEIGHT, minute2, DIGITS_SCALE);
 		
 		lift_between();
 		moveTo(PARKX, PARKY);		
@@ -176,6 +171,7 @@ void loop_rtc()
 	}
 }
 #else
+volatile int targetLift = LIFT_BETWEEN;
 void loop_calibration()
 {
 	if (Serial.available() > 0)
@@ -201,14 +197,26 @@ void loop_calibration()
 			lastY = PARKY;
 		  break;
 		  case 'z':
-			lift_drawing();
+			targetLift = LIFT_TAKE_SWEEPER;
 			break;
 		  case 'x':
-			lift_between();
+			targetLift = LIFT_BETWEEN;
 			break;
 		  case 'c':
-			lift_take_sweeper();
+			targetLift = LIFT_DRAWING;
 			break;		
+      case 'i':
+      targetLift += 10;
+      break;
+      case 'k':
+      targetLift -= 10;
+      break;
+      case ':':
+      draw_colon(lastX,lastY,DIGITS_SCALE);
+      break;
+      case 'e':
+      erase();
+      break;
 		}
 		if((inByte >= '0') && (inByte <= '9'))
 		{
@@ -217,10 +225,13 @@ void loop_calibration()
 
 		Serial.print(lastX);
 		Serial.print(",");
-		Serial.println(lastY);
+		Serial.print(lastY);
+    Serial.print(",");
+    Serial.println(targetLift);
 	}
 	  
 	set_XY(lastX, lastY);
+  lift(targetLift);
 	delay(10);
 	return;
 	
@@ -238,7 +249,7 @@ void loop()
 #ifdef CALIBRATION
 	loop_calibration();
 #else 
-	loop_calibration();
+	loop_rtc();
 #endif
 } 
 
@@ -325,7 +336,7 @@ void draw_number(float bx, float by, int num, float scale)
 
 void erase()
 {
-	lift_drawing();
+	  lift_drawing();
     moveTo(70, 46);
     moveTo(ERASEMAXX, 43);
 
@@ -391,7 +402,7 @@ void lift(int lift)
 	{
 		servoLift += increment;
 		servo_lift.writeMicroseconds(servoLift);
-        delayMicroseconds(LIFTSPEED);
+    delayMicroseconds(LIFTSPEED);
 	}	
 }
 
@@ -448,6 +459,11 @@ double return_angle(double a, double b, double c) {
   return acos((a * a + c * c - b * b) / (2 * a * c));
 }
 
+float reverse_servo(float microseconds)
+{
+  return map(microseconds, 0, 3000, 3000, 0);
+}
+
 // moves the pen to the coordinate (Tx,Ty)
 void set_XY(double Tx, double Ty) 
 {
@@ -459,14 +475,18 @@ void set_XY(double Tx, double Ty)
   dx = Tx - O1X;
   dy = Ty - O1Y;
 
-  // polar lemgth (c) and angle (a1)
+  // polar length (c) and angle (a1)
   c = sqrt(dx * dx + dy * dy); // 
   a1 = atan2(dy, dx); //
   a2 = return_angle(L1, L2, c);
 
-  servo_left.writeMicroseconds(floor(((a2 + a1 - M_PI) * SERVOFAKTORLEFT) + SERVOLEFTNULL));
+  double left_ms = floor(((a2 + a1 - M_PI) * SERVOFAKTORLEFT) + SERVOLEFTNULL);
+#ifdef SERVOREVERSELEFT
+  left_ms = reverse_servo(left_ms);
+#endif
+  servo_left.writeMicroseconds(left_ms);
 
-  // calculate joinr arm point for triangle of the right servo arm
+  // calculate joint arm point for triangle of the right servo arm
   a2 = return_angle(L2, L1, c);
   Hx = Tx + L3 * cos((a1 - a2 + 0.621) + M_PI); //36,5°
   Hy = Ty + L3 * sin((a1 - a2 + 0.621) + M_PI);
@@ -479,8 +499,9 @@ void set_XY(double Tx, double Ty)
   a1 = atan2(dy, dx);
   a2 = return_angle(L1, (L2 - L3), c);
 
-  servo_right.writeMicroseconds(floor(((a1 - a2) * SERVOFAKTORRIGHT) + SERVORIGHTNULL));
-
+  double right_ms = floor(((a1 - a2) * SERVOFAKTORRIGHT) + SERVORIGHTNULL);
+#ifdef SERVOREVERSERIGHT
+  right_ms = reverse_servo(right_ms);
+#endif
+  servo_right.writeMicroseconds(right_ms);
 }
-
-
